@@ -54,7 +54,7 @@ def resize_image(image, resolution):
     return resized_img
 
 # ========== Prompt Suggestion (BLIP) ==========
-blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base", use_fast=False)
+blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base", use_fast=True)
 blip_model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base").to(device)
 
 torch_gc()
@@ -143,7 +143,7 @@ with gr.Blocks(css=css) as demo:
             fn=run_edit,
             inputs=[image_edit, prompt_edit],
             outputs=[output_edit],
-            cache_examples=True
+            cache_examples=False
         )
 
         def handle_image_upload(img):
