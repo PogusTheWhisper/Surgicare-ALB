@@ -3,12 +3,34 @@ import spaces
 import torch
 from diffusers import StableDiffusionXLPipeline, EDMEulerScheduler, StableDiffusionXLInstructPix2PixPipeline, AutoencoderKL
 from huggingface_hub import hf_hub_download
+from transformers import BlipProcessor, BlipForConditionalGeneration
 import numpy as np
 import math
+import os
+import gc
 from PIL import Image
+
+# ========== Device Setup ==========
+device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
+print(f"Using device: {device}")
+if device == "mps":
+    os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+elif device == "cuda":
+    torch.backends.cudnn.benchmark = True
 
 # ========== Download Weights ==========
 edit_file = hf_hub_download(repo_id="stabilityai/cosxl", filename="cosxl_edit.safetensors")
+
+# ========== Memory Management ==========
+def torch_gc():
+    try:
+        if device == "mps" and hasattr(torch.mps, 'empty_cache'):
+            torch.mps.empty_cache()
+    except:
+        pass
+    gc.collect()
+    if hasattr(torch.cuda, 'empty_cache'):
+        torch.cuda.empty_cache()
 
 # ========== Image Resize ==========
 def resize_image(image, resolution):
@@ -25,25 +47,42 @@ def resize_image(image, resolution):
 # ========== Load VAE ==========
 vae = AutoencoderKL.from_pretrained("madebyollin/sdxl-vae-fp16-fix", torch_dtype=torch.float16)
 
-# ========== Load Pipelines ==========
+# ========== Load Edit Pipeline ==========
 pipe_edit = StableDiffusionXLInstructPix2PixPipeline.from_single_file(
-    edit_file, num_in_channels=8, is_cosxl_edit=True, vae=vae, torch_dtype=torch.float16,
+    edit_file,
+    num_in_channels=8,
+    is_cosxl_edit=True,
+    vae=vae,
+    torch_dtype=torch.float16,
 )
 pipe_edit.scheduler = EDMEulerScheduler(
     sigma_min=0.002, sigma_max=120.0, sigma_data=1.0,
     prediction_type="v_prediction", sigma_schedule="exponential"
 )
-pipe_edit.to("mps")
+pipe_edit.to(device)
+torch_gc()
 
-# ========== Inference Functions ==========
+# ========== Load BLIP Captioning ==========
+blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+blip_model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base").to(device)
+torch_gc()
 
+def generate_caption(image):
+    inputs = blip_processor(images=image, return_tensors="pt").to(device)
+    out = blip_model.generate(**inputs)
+    caption = blip_processor.decode(out[0], skip_special_tokens=True)
+    torch_gc()
+    return caption
+
+# ========== Inference Function ==========
 @spaces.GPU
 def run_edit(image, prompt, negative_prompt="", guidance_scale=7, steps=20, progress=gr.Progress(track_tqdm=True)):
-    steps = min(steps, 20)  # Clamp to avoid crash
+    steps = min(steps, 20)
     image = resize_image(image, 1024)
     print("Image resized to", image.size)
     width, height = image.size
-    return pipe_edit(
+    torch_gc()
+    result = pipe_edit(
         prompt=prompt,
         image=image,
         height=height,
@@ -51,11 +90,12 @@ def run_edit(image, prompt, negative_prompt="", guidance_scale=7, steps=20, prog
         negative_prompt=negative_prompt,
         guidance_scale=guidance_scale,
         num_inference_steps=steps
-    ).images[0]
+    )
+    return result.images[0]
 
-# ========== UI ==========
+# ========== Gradio UI ==========
 css = '''
-.gradio-container{
+.gradio-container {
     max-width: 768px !important;
     margin: 0 auto;
 }
@@ -83,6 +123,9 @@ with gr.Blocks(css=css) as demo:
                 negative_prompt_edit = gr.Textbox(label="Negative Prompt")
                 guidance_scale_edit = gr.Number(label="Guidance Scale", value=7)
                 steps_edit = gr.Slider(label="Steps (Max 20 for CosXL Edit)", minimum=10, maximum=50, value=20)
+
+        # Auto-fill prompt from BLIP when image is uploaded
+        image_edit.change(fn=generate_caption, inputs=[image_edit], outputs=[prompt_edit])
 
         gr.Examples(examples=edit_examples, fn=run_edit, inputs=[image_edit, prompt_edit], outputs=[output_edit], cache_examples=True)
 
