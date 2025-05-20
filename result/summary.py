@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 
-root_dir = '.'
+root_dir = 'result'
 summary_data = []
 
 # Traverse model and variant directories
