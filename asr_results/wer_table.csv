@@ -1,0 +1,7 @@
+model,samples,SEACrowd/gowajee,SEACrowd/thai_elderly_speech,fsicoli/common_voice_18_0,google/fleurs,tingwry/asr-augmented
+whisper-large-v3,388,94.1,96.91,78.84,87.97,74.12
+pathumma-whisper-th-large-v3-natural-noise-finetuned,388,8.23,19.33,69.1,69.39,7.15
+airesearch-wav2vec2-large-xlsr-53-th,388,99.58,38.92,67.79,99.63,100.0
+pathumma-whisper-th-large-v3,388,4.37,5.41,80.34,71.13,90.02
+monsoon-whisper-medium-gigaspeech2,388,99.58,38.92,67.79,99.63,100.0
+thonburian-whisper-th-large-v3-combined,388,39.84,11.08,110.67,66.33,49.85

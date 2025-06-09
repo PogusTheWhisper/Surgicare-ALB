@@ -3,4 +3,7 @@
 **/poetry.lock/
 **/pyproject.toml/
 /dataset/
+/.streamlit/
+/.vscode/
 /raw_model/
+topdown_model_fold2_stage3.pt

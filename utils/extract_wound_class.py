@@ -1,162 +1,108 @@
 import os
-import numpy as np
+import torch
 import requests
-from tensorflow import keras
-from tensorflow.keras.preprocessing import image
-
-class WoundClassificationModel:
-    model_paths = {}  # Dictionary to hold model names and their paths
-    current_model_name = None  # Track the currently loaded model name
-    models = {}  # Dictionary to hold loaded models
-
-    @classmethod
-    def list_available_models(cls):
-        """List available models."""
-        print("Available models:")
-        for model_name in [
-            'SurgiCare-V1-large-turbo',
-            'SurgiCare-V1-large',
-            'SurgiCare-V1-medium',
-            'SurgiCare-V1-small'
-        ]:
-            print(f"- {model_name}")
-
-    @classmethod
-    def load_model(cls, model_name):
-        if model_name in cls.models:
-            cls.current_model_name = model_name
-            print(f"Model '{model_name}' is already loaded.")
-            return cls.models[model_name]
-
-        model_urls = {
-            'SurgiCare-V1-large-turbo': 'https://huggingface.co/PogusTheWhisper/SurgiCare/resolve/main/SurgiCare-V1-large-turbo.keras',
-            'SurgiCare-V1-large': 'https://huggingface.co/PogusTheWhisper/SurgiCare/resolve/main/SurgiCare-V1-large.keras',
-            'SurgiCare-V1-medium': 'https://huggingface.co/PogusTheWhisper/SurgiCare/resolve/main/SurgiCare-V1-medium.keras',
-            'SurgiCare-V1-small': 'https://huggingface.co/PogusTheWhisper/SurgiCare/resolve/main/SurgiCare-V1-small.keras'
-        }
-
-        if model_name not in model_urls:
-            raise ValueError(f"Model '{model_name}' is not recognized.")
-
-        if model_name in cls.model_paths and os.path.exists(cls.model_paths[model_name]):
-            model_path = cls.model_paths[model_name]
-        else:
-            model_path = cls.download_model(model_urls[model_name], model_name + '.keras')
-            cls.model_paths[model_name] = model_path
-
-        print(f"Loading model from {model_path}...")
-        model = keras.models.load_model(model_path)
-        print("Model loaded successfully.")
-
-        cls.models[model_name] = model
-        cls.current_model_name = model_name
-        return model
-
-    @staticmethod
-    def download_model(url, model_filename):
-        """Download the model from the specified URL."""
-        model_path = os.path.join(os.getcwd(), model_filename)
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            with open(model_path, 'wb') as f:
-                f.write(response.content)
-            print(f"Model downloaded and saved to {model_path}.")
-        except requests.RequestException as e:
-            raise RuntimeError(f"Failed to download model from {url}. Reason: {e}")
-        return model_path
-
-    @classmethod
-    def extract_wound_class(cls, img_path):
-        if cls.current_model_name is None:
-            raise ValueError("No model is currently loaded. Please load a model first.")
-
-        class_labels = {
-            0: 'Abrasions',
-            1: 'Bruises',
-            2: 'Burns',
-            3: 'Cut',
-            4: 'Diabetic Wounds',
-            5: 'Laseration',
-            6: 'Normal',
-            7: 'Pressure Wounds',
-            8: 'Surgical Wounds',
-            9: 'Venous Wounds'
-        }
-
-        model = cls.models[cls.current_model_name]
-
-        for target_size in [(224, 224), (300, 300)]:
-            try:
-                img_array = cls.preprocess_image(img_path, target_size)
-                predictions = model.predict(img_array)
-                predicted_index = np.argmax(predictions)
-                predicted_class = class_labels[predicted_index]
-                return predicted_class, predictions
-            except Exception as e:
-                print(f"Error with size {target_size}: {e}")
-
-        return None
-
-    @staticmethod
-    def preprocess_image(img_path, target_size):
-        img = image.load_img(img_path, target_size=target_size)
-        img_array = image.img_to_array(img)
-        img_array = np.expand_dims(img_array, axis=0)
-        return img_array
+import torch.nn as nn
+from PIL import Image
+from torchvision import transforms
+from torchvision.models import efficientnet_v2_l, EfficientNet_V2_L_Weights
+from functools import lru_cache
 
 
-# Utility functions for single-use inference (alternative to class-based)
+# ---- Custom Model Class ----
+class WoundClassifier(nn.Module):
+    def __init__(self, num_classes=5, dropout=0.4):
+        super().__init__()
+        base = efficientnet_v2_l(weights=EfficientNet_V2_L_Weights.DEFAULT)
+        n_features = base.classifier[1].in_features
+        base.classifier = nn.Identity()
+        self.backbone = base
 
-def download_model(model_url, model_path='temp_model.keras'):
-    if not os.path.exists(model_path):
-        print(f"Downloading model from {model_url}...")
-        response = requests.get(model_url)
-        if response.status_code == 200:
-            with open(model_path, 'wb') as file:
-                file.write(response.content)
-            print("Model downloaded and saved.")
-        else:
-            raise Exception(f"Failed to download model. Status code: {response.status_code}")
-    return model_path
+        self.shared_head = nn.Sequential(
+            nn.Linear(n_features, 512),
+            nn.GELU(),
+            nn.BatchNorm1d(512),
+            nn.Dropout(dropout)
+        )
 
-def extract_wound_class(img_path, model_name):
-    model_urls = {
-        'SurgiCare-V1-fast-best': ('https://huggingface.co/PogusTheWhisper/SurgiCare/resolve/main/SurgiCare-V1-fast-best.keras', 224),
-        'SurgiCare-V1-mini-best': ('https://huggingface.co/PogusTheWhisper/SurgiCare/resolve/main/SurgiCare-V1-mini-best-model.keras', 224),
-        'SurgiCare-V1-best': ('https://huggingface.co/PogusTheWhisper/SurgiCare/resolve/main/SurgiCare-V1-best.keras', 300)
-    }
+        self.class_head = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.GELU(),
+            nn.BatchNorm1d(256),
+            nn.Dropout(dropout),
+            nn.Linear(256, num_classes)
+        )
 
-    if model_name not in model_urls:
-        raise ValueError(f"Model '{model_name}' is not recognized.")
+        self.layer_groups = [
+            self.backbone.features[0:2],
+            self.backbone.features[2:4],
+            self.backbone.features[4:6],
+            self.backbone.features[6:]
+        ]
 
-    model_url, image_size = model_urls[model_name]
+    def forward(self, x):
+        x = self.backbone(x)
+        x = self.shared_head(x)
+        cls_out = self.class_head(x)
+        return cls_out
 
-    class_labels = {
+
+# ---- Classifier Handler ----
+class CachedWoundClassifier:
+    MODEL_URL = "https://huggingface.co/PogusTheWhisper/Surgicare-ALB-fold2-stage3/resolve/main/topdown_model_fold2_stage3.pt"
+    MODEL_PATH = "topdown_model_fold2_stage3.pt"
+    CLASS_LABELS = {
         0: 'Abrasions',
         1: 'Bruises',
         2: 'Burns',
         3: 'Cut',
-        4: 'Diabetic Wounds',
-        5: 'Laseration',
-        6: 'Normal',
-        7: 'Pressure Wounds',
-        8: 'Surgical Wounds',
-        9: 'Venous Wounds'
+        4: 'Normal'
     }
 
-    model_path = download_model(model_url, model_path=model_name + '.keras')
+    def __init__(self, device=None):
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.model = self._load_model().to(self.device)
+        self.model.eval()
 
-    print(f"Loading model from {model_path}...")
-    model = keras.models.load_model(model_path)
-    print("Model loaded successfully.")
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def _load_model():
+        if not os.path.exists(CachedWoundClassifier.MODEL_PATH):
+            print(f"Downloading model from {CachedWoundClassifier.MODEL_URL}...")
+            response = requests.get(CachedWoundClassifier.MODEL_URL)
+            response.raise_for_status()
+            with open(CachedWoundClassifier.MODEL_PATH, "wb") as f:
+                f.write(response.content)
+            print("Model downloaded.")
 
-    img = image.load_img(img_path, target_size=(image_size, image_size))
-    img_array = image.img_to_array(img)
-    img_array = np.expand_dims(img_array, axis=0)
+        print("Loading model state_dict into architecture...")
+        model = WoundClassifier(num_classes=5)
+        state_dict = torch.load(CachedWoundClassifier.MODEL_PATH, map_location="cpu")
+        model.load_state_dict(state_dict)
+        print("Model loaded successfully.")
+        return model
 
-    predictions = model.predict(img_array)
-    predicted_index = np.argmax(predictions)
-    predicted_class = class_labels[predicted_index]
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def _get_transform():
+        return transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225]),
+        ])
 
-    return predicted_class
+    def preprocess_image(self, image_path):
+        transform = self._get_transform()
+        image = Image.open(image_path).convert("RGB")
+        image = transform(image).unsqueeze(0)  # Add batch dimension
+        return image.to(self.device)
+
+    def predict(self, image_path):
+        image_tensor = self.preprocess_image(image_path)
+        with torch.no_grad():
+            logits = self.model(image_tensor)
+            probs = torch.nn.functional.softmax(logits, dim=1)
+            pred_idx = torch.argmax(probs, dim=1).item()
+            pred_label = self.CLASS_LABELS.get(pred_idx, "Unknown")
+            return pred_label, probs.cpu().numpy()

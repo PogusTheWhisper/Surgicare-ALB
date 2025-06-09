@@ -1,0 +1,6 @@
+dataset,config,samples,CER,WER
+tingwry/asr-augmented,default,388,0.08189200297708313,1.0
+google/fleurs,th_th,388,0.1283544568974547,0.9962593516209476
+fsicoli/common_voice_18_0,th,388,0.06490159325210872,0.6779026217228464
+SEACrowd/gowajee,gowajee_source,388,0.3031415018347803,0.99581589958159
+SEACrowd/thai_elderly_speech,thai_elderly_speech_healthcare_source,388,0.0383083312145097,0.38917525773195877

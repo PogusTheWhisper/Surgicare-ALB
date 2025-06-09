@@ -1,46 +1,55 @@
-import streamlit as st
 import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+import streamlit as st
 from openai import OpenAI
-from utils.extract_wound_class import WoundClassificationModel
-from utils.extract_wound_features import extract_wound_features
-from utils.analyze_wound_features import analyze_wound_features
+from PIL import Image
+from io import BytesIO
+import base64
+from utils.extract_wound_class import CachedWoundClassifier
+from utils.extract_wound_features import CLIPWoundFeatureExtractor
 
-def analyze_wound(img_path, lang='th', model_name='SurgiCare-V1-large-turbo'):
-    classifier = WoundClassificationModel()
-    classifier.load_model(model_name)
 
-    wound_class, predictions = classifier.extract_wound_class(img_path)
-    wound_features = extract_wound_features(img_path)
-    wound_assessment = analyze_wound_features(wound_features, lang)
-
-    result_lines = [
-        f"wound class: {wound_class}",
-        *[f"{key}: {value}" for key, value in wound_assessment.items()]
-    ]
-
+def analyze_wound(image_path, lang='th'):
+    classifier = CachedWoundClassifier()
+    extractor = CLIPWoundFeatureExtractor()
+    wound_class, probabilities = classifier.predict(image_path)
+    features = extractor.extract_features(image_path, wound_class, lang=lang)
+    result_lines = [f"Wound class: {wound_class}", "Top Features:"]
+    result_lines += [f"{desc}: {score:.4f}" for desc, score in features]
     return "\n".join(result_lines)
 
-def call_llm(api_key, model, max_tokens, temperature, top_p, user_input):
+
+def get_prompt(lang):
+    if lang == "th":
+        return """
+คุณคือ "SurgiCare AI" และพูดแทนตัวเองว่าผม
+ที่มีหน้าที่ "แนะนำวิธีรักษาแผลของคนไข้โดยวิเคราะจากข้อมูลที่คนไข้จะให้"
+
+โดยพูดทวนลักษณะแผลของคนไข้เบื้องต้น 4-5 ข้อไม่ต้องลงรายละเอียด และแนะนำวิธีการดูแลแผลเป็นข้อๆ
+
+** และคุณต้องเตือนเสมอว่าเป็นการแนะนำเบื้องต้น และถ้ามีอาการรุนแรงควรได้รับการตรวจสอบและยืนยันจากแพทย์ที่ดูแลโดยตรง **
+"""
+    else:
+        return """
+You are "SurgiCare AI", an AI assistant specialized in post-surgical wound care.
+Your role is to give initial advice to patients based on the wound analysis they provide.
+
+Summarize 4–5 key points of their wound condition briefly, then give step-by-step wound care instructions.
+
+** Always remind the user that this is an initial suggestion and they should consult a licensed medical professional for serious symptoms. **
+"""
+
+
+def call_llm(api_key, model, max_tokens, temperature, top_p, user_input, lang):
     client = OpenAI(api_key=api_key, base_url="https://api.opentyphoon.ai/v1")
+    prompt = get_prompt(lang)
     try:
         stream = client.chat.completions.create(
             model=model,
             messages=[
-                {
-                    "role": "system",
-                    "content": """
-                    คุณคือ "SurgiCare AI" และพูดแทนตัวเองว่าผม
-                    ที่มีหน้าที่ "แนะนำวิธีรักษาแผลของคนไข้โดยวิเคราะจากข้อมูลที่คนไข้จะให้"
-                    
-                    โดยพูดทวนลักษณะแผลของคนไข้เบื้องต้น 4-5 ข้อไม่ต้องลงรายละเอียด และแนะนำวิธีการดูแลแผลเป็นข้อๆ
-                    
-                    ** และคุณต้องเตือนเสมอว่าเป็นการแนะนำเบื้องต้น และถ้ามีอาการรุนแรงควรได้รับการตรวจสอบและยืนยันจากแพทย์ที่ดูแลโดยตรง **
-                    """,
-                },
-                {
-                    "role": "user",
-                    "content": user_input,
-                }
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": user_input}
             ],
             max_tokens=max_tokens,
             temperature=temperature,
@@ -48,170 +57,178 @@ def call_llm(api_key, model, max_tokens, temperature, top_p, user_input):
             stream=True,
         )
     except Exception as e:
-        return f'<API_KEY_ERROR>: {str(e)}'
+        return f"<API_KEY_ERROR>: {str(e)}"
 
     return "".join(
         chunk.choices[0].delta.content
-        for chunk in stream if hasattr(chunk, 'choices') and chunk.choices[0].delta.content
+        for chunk in stream
+        if hasattr(chunk, 'choices') and chunk.choices[0].delta.content
     )
 
+
 def list_sample_images(directory):
-    """List all image files in the given directory."""
     image_extensions = [".jpg", ".jpeg", ".png"]
-    return sorted(f for f in os.listdir(directory) if os.path.splitext(f)[1].lower() in image_extensions)
+    all_images = []
+    for root, _, files in os.walk(directory):
+        for file in files:
+            if os.path.splitext(file)[1].lower() in image_extensions:
+                rel_path = os.path.relpath(os.path.join(root, file), start=directory)
+                all_images.append(rel_path)
+    return sorted(all_images)
+
+
+def image_to_base64(image):
+    buffered = BytesIO()
+    image.save(buffered, format="JPEG")
+    return base64.b64encode(buffered.getvalue()).decode()
+
 
 def main():
-    # Initialize configuration
-    TYPHOON_API_KEY = st.secrets["TYPHOON_API_KEY"]   
-             
-    classifier = WoundClassificationModel()
-    classifier.load_model('SurgiCare-V1-large-turbo')
+    TYPHOON_API_KEY = st.secrets["TYPHOON_API_KEY"]
 
-    # Default session state values
     session_defaults = {
-        'classify_model': 'SurgiCare-V1-large-turbo',
         'llm_model': 'typhoon-v2-70b-instruct',
         'max_token': 512,
         'temperature': 0.6,
         'top_p': 0.95,
+        'lang': 'th',
         'full_diagnose_w_chat': [],
         'chat_history': [],
-        'use_sample_image': None,
+        'use_sample_image': False,
         'upload_image': None,
         'sample_image': None,
+        'camera_image': None
     }
-    
-    for key, value in session_defaults.items():
+
+    for key, val in session_defaults.items():
         if key not in st.session_state:
-            st.session_state[key] = value
+            st.session_state[key] = val
 
-    # Sidebar configuration
+    # Sidebar config
     with st.sidebar:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.image('app_logo.png', width=125)
-        
-        st.title("Config")
-        st.markdown('You can lower temperature to make it more deterministic.')
+        st.image('app_logo.png', width=140)
+        st.title("Settings")
 
-        classify_model = st.selectbox(
-            "Classify Model",
-            options=["SurgiCare-V1-large-turbo", "SurgiCare-V1-large", "SurgiCare-V1-mini-medium", "SurgiCare-V1-mini-small"],
-            index=["SurgiCare-V1-large-turbo", "SurgiCare-V1-large", "SurgiCare-V1-mini-medium", "SurgiCare-V1-mini-small"].index(st.session_state['classify_model'])
-        )
-        
-        llm_model = st.selectbox(
-            "LLM Model",
-            options=["typhoon-v2-70b-instruct", "typhoon-v2-8b-instruct"],
-            index=["typhoon-v2-70b-instruct", "typhoon-v2-8b-instruct"].index(st.session_state['llm_model'])
-        )
-        
-        max_token = st.slider('Max Token', 50, 512, st.session_state['max_token'], step=10)
-        temperature = st.slider('Temperature', 0.0, 1.0, st.session_state['temperature'], step=0.05)
-        top_p = st.slider('Top P', 0.0, 1.0, st.session_state['top_p'], step=0.05)
+        st.session_state['lang'] = st.selectbox("Language", ["th", "en"], index=0)
+        st.session_state['llm_model'] = st.selectbox("LLM Model", ["typhoon-v2-70b-instruct", "typhoon-v2-8b-instruct"])
+        st.session_state['max_token'] = st.slider("Max Tokens", 50, 512, st.session_state['max_token'], step=10)
+        st.session_state['temperature'] = st.slider("Temperature", 0.0, 1.0, st.session_state['temperature'], step=0.05)
+        st.session_state['top_p'] = st.slider("Top P", 0.0, 1.0, st.session_state['top_p'], step=0.05)
 
-        if st.button('Save Config'):
-            st.session_state.update({
-                'classify_model': classify_model,
-                'llm_model': llm_model,
-                'max_token': max_token,
-                'temperature': temperature,
-                'top_p': top_p
-            })
-            st.success("Configuration saved!")
-            classifier = WoundClassificationModel()
-            classifier.load_model(classify_model)
+        if st.button("Clear Chat"):
+            st.session_state['chat_history'] = []
+            st.session_state['full_diagnose_w_chat'] = []
+            st.sidebar.success("Chat history cleared.")
 
-    st.title("Welcome to SurgiCare!!")
-    st.markdown("AI Application for supporting post-surgery patient recovery.")
+    st.title("SurgiCare - AI Wound Assistant")
+    st.markdown("Upload, select, or capture a wound image to receive analysis and care suggestions.")
 
-    col1, col2 = st.columns(2)
+    st.subheader("Image Input")
 
-    with col1:
-        st.header("Take a picture")
-        img_file_buffer = st.camera_input("Camera input")
-        if img_file_buffer:
-            user_content = analyze_wound(img_file_buffer, model_name=st.session_state['classify_model'])
-            diagnose_response = call_llm(
-                TYPHOON_API_KEY,
-                st.session_state['llm_model'],
-                st.session_state['max_token'],
-                st.session_state['temperature'],
-                st.session_state['top_p'],
-                user_content
-            )
-            st.session_state['full_diagnose_w_chat'].append({"role": "assistant", "content": diagnose_response})
-            st.session_state['chat_history'].append({"role": "assistant", "content": diagnose_response})
+    camera_img = st.camera_input("Capture a wound image")
+    if camera_img:
+        st.session_state["camera_image"] = camera_img
+        st.session_state["upload_image"] = None
+        st.session_state["sample_image"] = None
+        st.session_state["use_sample_image"] = False
 
-    with col2:
-        st.header("Upload or select a sample photo")
-        
-        uploaded_file = st.file_uploader("Choose an image", type=["jpg", "png", "jpeg"])
-        if uploaded_file:
-            st.session_state['upload_image'] = uploaded_file
+    uploaded_img = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
+    if uploaded_img:
+        st.session_state["upload_image"] = uploaded_img
+        st.session_state["camera_image"] = None
+        st.session_state["sample_image"] = None
+        st.session_state["use_sample_image"] = False
 
-        sample_images_dir = "careful_this_contain_wound_image/"
-        sample_images = list_sample_images(sample_images_dir)
-        if sample_images:
-            selected_sample = st.selectbox("Or use a sample image", options=["-- Select --"] + sample_images)
-            st.session_state['sample_image'] = os.path.join(sample_images_dir, selected_sample) if selected_sample != "-- Select --" else None
+    sample_dir = "careful_this_contain_wound_image"
+    sample_images = list_sample_images(sample_dir)
+    sample_labels = [f"Sample {i+1}" for i in range(len(sample_images))]
+    sample_map = dict(zip(sample_labels, sample_images))
 
-        if st.toggle("Switch to use sample images"):
+    if sample_images:
+        selected_label = st.selectbox("Select a sample image", ["-- Select --"] + sample_labels)
+        if selected_label != "-- Select --":
+            selected_sample = sample_map[selected_label]
+            st.session_state["sample_image"] = os.path.join(sample_dir, selected_sample)
             st.session_state["use_sample_image"] = True
+            st.session_state["camera_image"] = None
+            st.session_state["upload_image"] = None
 
-        if st.button("Process Image"):
-            if st.session_state['use_sample_image'] and st.session_state['sample_image']:
-                user_content = analyze_wound(st.session_state['sample_image'], model_name=st.session_state['classify_model'])
-            elif not st.session_state['use_sample_image'] and st.session_state['upload_image']:
-                user_content = analyze_wound(st.session_state['upload_image'], model_name=st.session_state['classify_model'])
-            else:
-                st.warning("Please select or upload an image first.")
-                return
+    image = None
+    if st.session_state["use_sample_image"] and st.session_state["sample_image"]:
+        image = st.session_state["sample_image"]
+    elif st.session_state["upload_image"]:
+        image = st.session_state["upload_image"]
+    elif st.session_state["camera_image"]:
+        image = st.session_state["camera_image"]
 
-            diagnose_response = call_llm(
+    if image:
+        if isinstance(image, str):
+            img = Image.open(image)
+        else:
+            img = Image.open(image)
+
+        st.markdown(
+            f"""
+            <div style="text-align:center">
+                <img src="data:image/jpeg;base64,{image_to_base64(img)}" width="300">
+                <p><strong>Selected Image</strong></p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    if st.button("Analyze Wound"):
+        if not image:
+            st.warning("Please provide a wound image.")
+        else:
+            analysis = analyze_wound(image, lang=st.session_state['lang'])
+            st.text_area("Wound Analysis", analysis, height=200)
+
+            response = call_llm(
                 TYPHOON_API_KEY,
                 st.session_state['llm_model'],
                 st.session_state['max_token'],
                 st.session_state['temperature'],
                 st.session_state['top_p'],
-                user_content
+                analysis,
+                lang=st.session_state['lang']
             )
-            st.session_state['full_diagnose_w_chat'].append({"role": "assistant", "content": diagnose_response})
-            st.session_state['chat_history'].append({"role": "assistant", "content": diagnose_response})
-            
-            # Clear processed images
-            st.session_state['sample_image'] = None
-            st.session_state['upload_image'] = None
 
-    # Display chat history
-    st.subheader("Full Diagnose History")
+            st.session_state['full_diagnose_w_chat'].append({"role": "assistant", "content": response})
+            st.session_state['chat_history'].append({"role": "assistant", "content": response})
+
+    st.subheader("Diagnosis History")
     for msg in st.session_state['full_diagnose_w_chat']:
         with st.chat_message(msg['role']):
             st.write(msg['content'])
 
-    prompt = st.chat_input("พิมพ์คำถามตรงนี้!!")
+    prompt = st.chat_input("Ask more about your wound..." if st.session_state['lang'] == "en" else "พิมพ์คำถามเพิ่มเติมเกี่ยวกับแผลของคุณ...")
     if prompt:
-        st.session_state['full_diagnose_w_chat'].append({"role": "user", "content": prompt})
         st.session_state['chat_history'].append({"role": "user", "content": prompt})
+        full_context = "\n".join(msg['content'] for msg in st.session_state['chat_history'])
 
-        conversation_history = "\n".join(msg["content"] for msg in st.session_state['chat_history'])
-
-        response = call_llm(
+        reply = call_llm(
             TYPHOON_API_KEY,
             st.session_state['llm_model'],
             st.session_state['max_token'],
             st.session_state['temperature'],
             st.session_state['top_p'],
-            conversation_history
+            full_context,
+            lang=st.session_state['lang']
         )
 
-        # Update histories with the assistant's response
-        st.session_state['full_diagnose_w_chat'].append({"role": "assistant", "content": response})
-        st.session_state['chat_history'].append({"role": "assistant", "content": response})
+        st.session_state['chat_history'].append({"role": "assistant", "content": reply})
+        st.session_state['full_diagnose_w_chat'].append({"role": "assistant", "content": reply})
 
-        # Clear chat display and show updated history
-        st.session_state['chat_history'] = []
-        st.session_state['full_diagnose_w_chat'] = []
+    if st.session_state['full_diagnose_w_chat']:
+        chat_log = "\n\n".join(f"{msg['role'].upper()}:\n{msg['content']}" for msg in st.session_state['full_diagnose_w_chat'])
+        st.download_button(
+            label="Download Session Log",
+            data=chat_log,
+            file_name="surgicare_session_log.txt",
+            mime="text/plain"
+        )
+
 
 if __name__ == "__main__":
     main()
