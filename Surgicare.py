@@ -163,7 +163,7 @@ def main():
 
     sample_dir = "careful_this_contain_wound_image"
     sample_images = list_sample_images(sample_dir)
-    sample_labels = [f"Sample {i+1}" for i in range(len(sample_images))]
+    sample_labels = [img.replace(os.sep, "/") for img in sample_images]
     sample_map = dict(zip(sample_labels, sample_images))
 
     if sample_images:
