@@ -12,7 +12,6 @@ import types
 if isinstance(torch.classes, types.ModuleType):
     torch.classes.__path__ = []
 
-# Set environment variables
 os.environ["STREAMLIT_SERVER_RUN_ON_SAVE"] = "false"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -58,7 +57,7 @@ def get_prompt(lang):
 You are "SurgiCare AI", an AI assistant specialized in post-surgical wound care.
 Your role is to give initial advice to patients based on the wound analysis they provide.
 
-Summarize 4–5 key points of their wound condition briefly, then give step-by-step wound care instructions.
+Summarize 4-5 key points of their wound condition briefly, then give step-by-step wound care instructions.
 
 ** Always remind the user that this is an initial suggestion and they should consult a licensed medical professional for serious symptoms. **
 """
@@ -164,7 +163,6 @@ def main():
     sample_dir = "careful_this_contain_wound_image"
     sample_images = list_sample_images(sample_dir)
 
-    # Enumerate images with clean "Sample X" labels, including subdir prefix
     sample_labels = []
     for idx, img in enumerate(sample_images, start=1):
         dir_part = os.path.dirname(img).replace(os.sep, '/')
@@ -212,7 +210,6 @@ def main():
             analysis = analyze_wound(image, lang=st.session_state['lang'])
             st.text_area("Wound Analysis", analysis, height=200)
 
-            # Add analysis to chat history as starting point
             st.session_state['chat_history'] = [{"role": "assistant", "content": analysis}]
 
             response = call_llm(
@@ -231,13 +228,11 @@ def main():
     # ==== Chat Input ====
     prompt = st.chat_input("Ask more about your wound..." if st.session_state['lang'] == "en" else "พิมพ์คำถามเพิ่มเติมเกี่ยวกับแผลของคุณ...")
 
-    # Initialize chat history if not already
     if 'chat_history' not in st.session_state:
         st.session_state['chat_history'] = []
 
     # ==== Display Chat History ====
     for msg in st.session_state['chat_history']:
-        # Skip messages starting with "Wound class"
         if msg['content'].strip().startswith("Wound class"):
             continue
         with st.chat_message(msg['role']):
@@ -245,12 +240,10 @@ def main():
 
     # ==== Handle New Prompt ====
     if prompt:
-        # Show user message
         with st.chat_message("user"):
             st.write(prompt)
         st.session_state['chat_history'].append({"role": "user", "content": prompt})
 
-        # Get assistant reply
         reply = call_llm(
             TYPHOON_API_KEY,
             st.session_state['llm_model'],
@@ -262,17 +255,14 @@ def main():
             lang=st.session_state['lang']
         )
 
-        # Show assistant message only if it doesn't start with "Wound class"
         if not reply.strip().startswith("Wound class"):
             with st.chat_message("assistant"):
                 st.write(reply)
 
-        # Always add reply to history
         st.session_state['chat_history'].append({"role": "assistant", "content": reply})
 
     # ==== Download Chat Log Button ====
     if st.session_state['chat_history']:
-        # Include everything in download (even "Wound class" ones)
         chat_log = "\n\n".join(f"{msg['role'].upper()}:\n{msg['content']}" for msg in st.session_state['chat_history'])
         st.download_button(
             label="Download Session Log",

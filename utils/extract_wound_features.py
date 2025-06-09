@@ -5,7 +5,6 @@ from typing import List, Dict, Tuple, Optional
 import warnings
 from transformers.utils import logging
 
-# Suppress warnings
 warnings.filterwarnings("ignore")
 logging.set_verbosity_error()
 
@@ -188,16 +187,14 @@ class CLIPWoundFeatureExtractor:
             return []
 
         try:
-            # Encode English prompts for similarity
             text_embeds = self._encode_text(en_prompts)
             similarities = torch.mm(text_embeds, text_embeds.t())
-            ref_sim = similarities[0]  # Use first as reference (placeholder)
+            ref_sim = similarities[0]
 
             results = [(i, en_prompts[i], ref_sim[i].item()) for i in range(len(en_prompts))]
             filtered = [item for item in results if item[2] >= self.SIMILARITY_THRESHOLD]
             sorted_features = sorted(filtered, key=lambda x: x[2], reverse=True)[:top_k]
 
-            # Replace with Thai if lang == 'th' and Thai prompts exist
             if lang == 'th' and th_prompts:
                 return [(th_prompts[i], score) for i, _, score in sorted_features]
             else:
