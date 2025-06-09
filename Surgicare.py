@@ -1,19 +1,18 @@
 import os
 import asyncio
 
-# ==== Fix RuntimeError: no running event loop ====
 try:
     asyncio.get_running_loop()
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
-# ==== Prevent torch.classes crash ====
+# Prevent torch.classes crash
 import torch
 import types
 if isinstance(torch.classes, types.ModuleType):
     torch.classes.__path__ = []
 
-# ==== Environment settings ====
+# Set environment variables
 os.environ["STREAMLIT_SERVER_RUN_ON_SAVE"] = "false"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -27,7 +26,6 @@ from utils.extract_wound_class import CachedWoundClassifier
 from utils.extract_wound_features import CLIPWoundFeatureExtractor
 
 
-# ========== Load models once at app startup ==========
 @st.cache_resource
 def load_model_components():
     classifier = CachedWoundClassifier()
@@ -66,16 +64,19 @@ Summarize 4–5 key points of their wound condition briefly, then give step-by-s
 """
 
 
-def call_llm(api_key, model, max_tokens, temperature, top_p, user_input, lang):
+def call_llm(api_key, model, max_tokens, temperature, top_p, history, user_input, lang):
     client = OpenAI(api_key=api_key, base_url="https://api.opentyphoon.ai/v1")
     prompt = get_prompt(lang)
+
+    messages = [{"role": "system", "content": prompt}]
+    for msg in history:
+        messages.append({"role": msg["role"], "content": msg["content"]})
+    messages.append({"role": "user", "content": user_input})
+
     try:
         stream = client.chat.completions.create(
             model=model,
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": user_input}
-            ],
+            messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
@@ -117,7 +118,6 @@ def main():
         'temperature': 0.6,
         'top_p': 0.95,
         'lang': 'th',
-        'full_diagnose_w_chat': [],
         'chat_history': [],
         'use_sample_image': False,
         'upload_image': None,
@@ -134,13 +134,12 @@ def main():
         st.title("Settings")
         st.session_state['lang'] = st.selectbox("Language", ["th", "en"], index=0)
         st.session_state['llm_model'] = st.selectbox("LLM Model", ["typhoon-v2-70b-instruct", "typhoon-v2.1-12b-instruct"])
-        st.session_state['max_token'] = st.slider("Max Tokens", 50, 512, st.session_state['max_token'], step=10)
+        st.session_state['max_token'] = st.slider("Max Tokens", 50, 1024, st.session_state['max_token'], step=10)
         st.session_state['temperature'] = st.slider("Temperature", 0.0, 1.0, st.session_state['temperature'], step=0.05)
         st.session_state['top_p'] = st.slider("Top P", 0.0, 1.0, st.session_state['top_p'], step=0.05)
 
         if st.button("Clear Chat"):
             st.session_state['chat_history'] = []
-            st.session_state['full_diagnose_w_chat'] = []
             st.sidebar.success("Chat history cleared.")
 
     st.title("SurgiCare - AI Wound Assistant")
@@ -184,11 +183,7 @@ def main():
         image = st.session_state["camera_image"]
 
     if image:
-        if isinstance(image, str):
-            img = Image.open(image)
-        else:
-            img = Image.open(image)
-
+        img = Image.open(image)
         st.markdown(
             f"""
             <div style="text-align:center">
@@ -206,30 +201,32 @@ def main():
             analysis = analyze_wound(image, lang=st.session_state['lang'])
             st.text_area("Wound Analysis", analysis, height=200)
 
+            # Add analysis to chat history as starting point
+            st.session_state['chat_history'] = [{"role": "assistant", "content": analysis}]
+
             response = call_llm(
                 TYPHOON_API_KEY,
                 st.session_state['llm_model'],
                 st.session_state['max_token'],
                 st.session_state['temperature'],
                 st.session_state['top_p'],
-                analysis,
+                st.session_state['chat_history'],
+                "โปรดให้คำแนะนำเพิ่มเติมในการดูแลแผลตามลักษณะด้านบน",
                 lang=st.session_state['lang']
             )
 
             with st.chat_message("assistant"):
                 st.write(response)
 
-            st.session_state['full_diagnose_w_chat'].append({"role": "assistant", "content": response})
             st.session_state['chat_history'].append({"role": "assistant", "content": response})
 
-    # ========= Chat Input + Display =========
+    # ==== Chat Input ====
     prompt = st.chat_input("Ask more about your wound..." if st.session_state['lang'] == "en" else "พิมพ์คำถามเพิ่มเติมเกี่ยวกับแผลของคุณ...")
     if prompt:
         with st.chat_message("user"):
             st.write(prompt)
-        st.session_state['chat_history'].append({"role": "user", "content": prompt})
 
-        full_context = "\n".join(msg['content'] for msg in st.session_state['chat_history'])
+        st.session_state['chat_history'].append({"role": "user", "content": prompt})
 
         reply = call_llm(
             TYPHOON_API_KEY,
@@ -237,7 +234,8 @@ def main():
             st.session_state['max_token'],
             st.session_state['temperature'],
             st.session_state['top_p'],
-            full_context,
+            st.session_state['chat_history'],
+            prompt,
             lang=st.session_state['lang']
         )
 
@@ -245,17 +243,15 @@ def main():
             st.write(reply)
 
         st.session_state['chat_history'].append({"role": "assistant", "content": reply})
-        st.session_state['full_diagnose_w_chat'].append({"role": "assistant", "content": reply})
 
-    # ========= Persistent Chat History Display =========
+    # ==== Display Chat History ====
     if st.session_state['chat_history']:
         st.subheader("Diagnosis History")
         for msg in st.session_state['chat_history']:
             with st.chat_message(msg['role']):
                 st.write(msg['content'])
 
-    if st.session_state['full_diagnose_w_chat']:
-        chat_log = "\n\n".join(f"{msg['role'].upper()}:\n{msg['content']}" for msg in st.session_state['full_diagnose_w_chat'])
+        chat_log = "\n\n".join(f"{msg['role'].upper()}:\n{msg['content']}" for msg in st.session_state['chat_history'])
         st.download_button(
             label="Download Session Log",
             data=chat_log,
