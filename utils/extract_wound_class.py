@@ -5,10 +5,6 @@ import torch.nn as nn
 from PIL import Image
 from torchvision import transforms
 from torchvision.models import efficientnet_v2_l, EfficientNet_V2_L_Weights
-from functools import lru_cache
-
-
-# ---- Custom Model Class ----
 class WoundClassifier(nn.Module):
     def __init__(self, num_classes=5, dropout=0.4):
         super().__init__()
@@ -60,31 +56,9 @@ class CachedWoundClassifier:
 
     def __init__(self, device=None):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = self._load_model().to(self.device)
+        self.model = self._load_or_download_model().to(self.device)
         self.model.eval()
-
-    @staticmethod
-    @lru_cache(maxsize=1)
-    def _load_model():
-        if not os.path.exists(CachedWoundClassifier.MODEL_PATH):
-            print(f"Downloading model from {CachedWoundClassifier.MODEL_URL}...")
-            response = requests.get(CachedWoundClassifier.MODEL_URL)
-            response.raise_for_status()
-            with open(CachedWoundClassifier.MODEL_PATH, "wb") as f:
-                f.write(response.content)
-            print("Model downloaded.")
-
-        print("Loading model state_dict into architecture...")
-        model = WoundClassifier(num_classes=5)
-        state_dict = torch.load(CachedWoundClassifier.MODEL_PATH, map_location="cpu")
-        model.load_state_dict(state_dict)
-        print("Model loaded successfully.")
-        return model
-
-    @staticmethod
-    @lru_cache(maxsize=1)
-    def _get_transform():
-        return transforms.Compose([
+        self.transform = transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),
             transforms.ToTensor(),
@@ -92,10 +66,28 @@ class CachedWoundClassifier:
                                  std=[0.229, 0.224, 0.225]),
         ])
 
+    def _load_or_download_model(self):
+        if not os.path.exists(self.MODEL_PATH):
+            print(f"Model not found. Downloading from: {self.MODEL_URL}")
+            try:
+                response = requests.get(self.MODEL_URL)
+                response.raise_for_status()
+                with open(self.MODEL_PATH, "wb") as f:
+                    f.write(response.content)
+                print("Model downloaded successfully.")
+            except Exception as e:
+                raise RuntimeError(f"Failed to download model: {e}")
+
+        print("Loading model from local file...")
+        model = WoundClassifier(num_classes=5)
+        state_dict = torch.load(self.MODEL_PATH, map_location="cpu")
+        model.load_state_dict(state_dict)
+        print("Model loaded and ready.")
+        return model
+
     def preprocess_image(self, image_path):
-        transform = self._get_transform()
         image = Image.open(image_path).convert("RGB")
-        image = transform(image).unsqueeze(0)  # Add batch dimension
+        image = self.transform(image).unsqueeze(0)  # Add batch dimension
         return image.to(self.device)
 
     def predict(self, image_path):

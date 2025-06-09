@@ -7,15 +7,13 @@ try:
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
-# ==== Prevent torch.classes inspection errors ====
-import sys
-import types
+# ==== Prevent torch.classes crash ====
 import torch
-
+import types
 if isinstance(torch.classes, types.ModuleType):
-    torch.classes.__path__ = []  # This avoids __path__._path crash from Streamlit reload
+    torch.classes.__path__ = []
 
-# ==== Optional: disable reload watcher to suppress errors ====
+# ==== Environment settings ====
 os.environ["STREAMLIT_SERVER_RUN_ON_SAVE"] = "false"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -24,8 +22,10 @@ from openai import OpenAI
 from PIL import Image
 from io import BytesIO
 import base64
+
 from utils.extract_wound_class import CachedWoundClassifier
 from utils.extract_wound_features import CLIPWoundFeatureExtractor
+
 
 # ========== Load models once at app startup ==========
 @st.cache_resource
@@ -133,7 +133,7 @@ def main():
         st.image('app_logo.png', width=140)
         st.title("Settings")
         st.session_state['lang'] = st.selectbox("Language", ["th", "en"], index=0)
-        st.session_state['llm_model'] = st.selectbox("LLM Model", ["typhoon-v2-70b-instruct", "typhoon-v2.1-12b-instruct"])
+        st.session_state['llm_model'] = st.selectbox("LLM Model", ["typhoon-v2-70b-instruct", "typhoon-v2-8b-instruct"])
         st.session_state['max_token'] = st.slider("Max Tokens", 50, 512, st.session_state['max_token'], step=10)
         st.session_state['temperature'] = st.slider("Temperature", 0.0, 1.0, st.session_state['temperature'], step=0.05)
         st.session_state['top_p'] = st.slider("Top P", 0.0, 1.0, st.session_state['top_p'], step=0.05)
