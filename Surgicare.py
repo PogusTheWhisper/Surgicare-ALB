@@ -222,12 +222,24 @@ def main():
 
     # ==== Chat Input ====
     prompt = st.chat_input("Ask more about your wound..." if st.session_state['lang'] == "en" else "พิมพ์คำถามเพิ่มเติมเกี่ยวกับแผลของคุณ...")
+
+    # Initialize chat history if not already
+    if 'chat_history' not in st.session_state:
+        st.session_state['chat_history'] = []
+
+    # ==== Display Chat History ====
+    for msg in st.session_state['chat_history']:
+        with st.chat_message(msg['role']):
+            st.write(msg['content'])
+
+    # ==== Handle New Prompt ====
     if prompt:
+        # Show user message
         with st.chat_message("user"):
             st.write(prompt)
-
         st.session_state['chat_history'].append({"role": "user", "content": prompt})
 
+        # Get assistant reply
         reply = call_llm(
             TYPHOON_API_KEY,
             st.session_state['llm_model'],
@@ -239,18 +251,13 @@ def main():
             lang=st.session_state['lang']
         )
 
+        # Show assistant message
         with st.chat_message("assistant"):
             st.write(reply)
-
         st.session_state['chat_history'].append({"role": "assistant", "content": reply})
 
-    # ==== Display Chat History ====
+    # ==== Download Chat Log Button ====
     if st.session_state['chat_history']:
-        st.subheader("Diagnosis History")
-        for msg in st.session_state['chat_history']:
-            with st.chat_message(msg['role']):
-                st.write(msg['content'])
-
         chat_log = "\n\n".join(f"{msg['role'].upper()}:\n{msg['content']}" for msg in st.session_state['chat_history'])
         st.download_button(
             label="Download Session Log",
