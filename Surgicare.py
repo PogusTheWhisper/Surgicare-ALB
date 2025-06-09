@@ -95,14 +95,12 @@ def call_llm(api_key, model, max_tokens, temperature, top_p, history, user_input
 def list_sample_images(directory):
     image_extensions = [".jpg", ".jpeg", ".png"]
     all_images = []
-    
     for root, _, files in os.walk(directory):
         for file in files:
             if os.path.splitext(file)[1].lower() in image_extensions:
-                rel_path = os.path.relpath(os.path.join(root, file), start=directory)
-                # Ensure subfolder/filename format by skipping files in the root directory
-                if os.path.dirname(rel_path):  # This checks there is at least a subfolder
-                    all_images.append(rel_path)
+                rel_dir = os.path.relpath(root, directory)
+                rel_file = os.path.join(rel_dir, file) if rel_dir != '.' else file
+                all_images.append(rel_file)
     return sorted(all_images)
 
 
