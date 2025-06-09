@@ -1,6 +1,7 @@
 import os
 import torch
 import requests
+import tempfile
 import torch.nn as nn
 from PIL import Image
 from torchvision import transforms
@@ -45,7 +46,7 @@ class WoundClassifier(nn.Module):
 # ---- Classifier Handler ----
 class CachedWoundClassifier:
     MODEL_URL = "https://huggingface.co/PogusTheWhisper/Surgicare-ALB-fold2-stage3/resolve/main/topdown_model_fold2_stage3.pt"
-    MODEL_PATH = "topdown_model_fold2_stage3.pt"
+    MODEL_PATH = os.path.join(tempfile.gettempdir(), "topdown_model_fold2_stage3.pt")
     CLASS_LABELS = {
         0: 'Abrasions',
         1: 'Bruises',
