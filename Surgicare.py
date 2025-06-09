@@ -166,26 +166,25 @@ def main():
 
     samples_per_class = 5
     class_sample_count = defaultdict(int)
+    class_sample_index = defaultdict(int)
     filtered_sample_images = []
     sample_labels = []
 
-    for idx, img in enumerate(sample_images, start=1):
+    for img in sample_images:
         dir_part = os.path.dirname(img).replace(os.sep, '/')
-
-        # Use directory name as class label
         class_label = dir_part
 
-        # Skip if already have 5 samples for this class
         if class_sample_count[class_label] >= samples_per_class:
             continue
 
         class_sample_count[class_label] += 1
+        class_sample_index[class_label] += 1
         filtered_sample_images.append(img)
 
-        if dir_part == '':
-            label = f"Sample {idx}"
+        if class_label == '':
+            label = f"{class_sample_index[class_label]}"
         else:
-            label = f"{dir_part}/Sample {idx}"
+            label = f"{class_label}/{class_sample_index[class_label]}"
         sample_labels.append(label)
 
     sample_map = dict(zip(sample_labels, filtered_sample_images))
