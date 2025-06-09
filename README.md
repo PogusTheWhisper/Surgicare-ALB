@@ -59,18 +59,3 @@ weighted avg       0.97      0.97      0.97       254
 **Average Performance**:
 - **Average Accuracy**: 0.9496 (94.96%)
 - **Average F1-Score**: 0.9419 (94.19%)
-
-## Getting Started
-
-1. Clone the repository
-2. Install required dependencies
-3. Access the live demo at the provided Streamlit link
-4. For detailed implementation, refer to the Medium article
-
-## Contributing
-
-We welcome contributions to improve SurgiCare's wound classification accuracy and expand its capabilities for post-surgery patient care.
-
-## License
-
-This project uses an open-source wound classification dataset from Kaggle. Please refer to the dataset's licensing terms for usage guidelines.
