@@ -133,7 +133,7 @@ def main():
         st.image('app_logo.png', width=140)
         st.title("Settings")
         st.session_state['lang'] = st.selectbox("Language", ["th", "en"], index=0)
-        st.session_state['llm_model'] = st.selectbox("LLM Model", ["typhoon-v2-70b-instruct", "typhoon-v2.1-12b-instruct"])
+        st.session_state['llm_model'] = st.selectbox("LLM Model", ["typhoon-v2.1-12b-instruct", "typhoon-v2-70b-instruct"])
         st.session_state['max_token'] = st.slider("Max Tokens", 50, 1024, st.session_state['max_token'], step=10)
         st.session_state['temperature'] = st.slider("Temperature", 0.0, 1.0, st.session_state['temperature'], step=0.05)
         st.session_state['top_p'] = st.slider("Top P", 0.0, 1.0, st.session_state['top_p'], step=0.05)
