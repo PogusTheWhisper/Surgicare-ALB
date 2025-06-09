@@ -215,8 +215,8 @@ def main():
                 lang=st.session_state['lang']
             )
 
-            with st.chat_message("assistant"):
-                st.write(response)
+            # with st.chat_message("assistant"):
+            #     st.write(response)
 
             st.session_state['chat_history'].append({"role": "assistant", "content": response})
 
