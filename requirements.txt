@@ -1,8 +1,7 @@
+pip
 transformers
 torch
 pillow
 openai
 requests
 torchvision
-os
-pip
