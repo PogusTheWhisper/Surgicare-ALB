@@ -113,7 +113,7 @@ def main():
     TYPHOON_API_KEY = st.secrets["TYPHOON_API_KEY"]
 
     session_defaults = {
-        'llm_model': 'typhoon-v2-70b-instruct',
+        'llm_model': 'typhoon-v2.1-12b-instruct',
         'max_token': 512,
         'temperature': 0.6,
         'top_p': 0.95,
