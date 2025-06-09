@@ -215,9 +215,6 @@ def main():
                 lang=st.session_state['lang']
             )
 
-            # with st.chat_message("assistant"):
-            #     st.write(response)
-
             st.session_state['chat_history'].append({"role": "assistant", "content": response})
 
     # ==== Chat Input ====
@@ -229,6 +226,9 @@ def main():
 
     # ==== Display Chat History ====
     for msg in st.session_state['chat_history']:
+        # Skip messages starting with "Wound class"
+        if msg['content'].strip().startswith("Wound class"):
+            continue
         with st.chat_message(msg['role']):
             st.write(msg['content'])
 
@@ -251,13 +251,17 @@ def main():
             lang=st.session_state['lang']
         )
 
-        # Show assistant message
-        with st.chat_message("assistant"):
-            st.write(reply)
+        # Show assistant message only if it doesn't start with "Wound class"
+        if not reply.strip().startswith("Wound class"):
+            with st.chat_message("assistant"):
+                st.write(reply)
+
+        # Always add reply to history
         st.session_state['chat_history'].append({"role": "assistant", "content": reply})
 
     # ==== Download Chat Log Button ====
     if st.session_state['chat_history']:
+        # Include everything in download (even "Wound class" ones)
         chat_log = "\n\n".join(f"{msg['role'].upper()}:\n{msg['content']}" for msg in st.session_state['chat_history'])
         st.download_button(
             label="Download Session Log",
