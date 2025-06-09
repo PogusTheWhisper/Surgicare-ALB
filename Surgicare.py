@@ -18,6 +18,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import streamlit as st
 from openai import OpenAI
 from PIL import Image
+from collections import defaultdict
 from io import BytesIO
 import base64
 
@@ -163,16 +164,31 @@ def main():
     sample_dir = "careful_this_contain_wound_image"
     sample_images = list_sample_images(sample_dir)
 
+    samples_per_class = 5
+    class_sample_count = defaultdict(int)
+    filtered_sample_images = []
     sample_labels = []
+
     for idx, img in enumerate(sample_images, start=1):
         dir_part = os.path.dirname(img).replace(os.sep, '/')
+
+        # Use directory name as class label
+        class_label = dir_part
+
+        # Skip if already have 5 samples for this class
+        if class_sample_count[class_label] >= samples_per_class:
+            continue
+
+        class_sample_count[class_label] += 1
+        filtered_sample_images.append(img)
+
         if dir_part == '':
             label = f"Sample {idx}"
         else:
             label = f"{dir_part}/Sample {idx}"
         sample_labels.append(label)
 
-    sample_map = dict(zip(sample_labels, sample_images))
+    sample_map = dict(zip(sample_labels, filtered_sample_images))
 
     if sample_images:
         selected_label = st.selectbox("Select a sample image", ["-- Select --"] + sample_labels)
@@ -225,20 +241,17 @@ def main():
 
             st.session_state['chat_history'].append({"role": "assistant", "content": response})
 
-    # ==== Chat Input ====
     prompt = st.chat_input("Ask more about your wound..." if st.session_state['lang'] == "en" else "พิมพ์คำถามเพิ่มเติมเกี่ยวกับแผลของคุณ...")
 
     if 'chat_history' not in st.session_state:
         st.session_state['chat_history'] = []
 
-    # ==== Display Chat History ====
     for msg in st.session_state['chat_history']:
         if msg['content'].strip().startswith("Wound class"):
             continue
         with st.chat_message(msg['role']):
             st.write(msg['content'])
 
-    # ==== Handle New Prompt ====
     if prompt:
         with st.chat_message("user"):
             st.write(prompt)
@@ -261,7 +274,6 @@ def main():
 
         st.session_state['chat_history'].append({"role": "assistant", "content": reply})
 
-    # ==== Download Chat Log Button ====
     if st.session_state['chat_history']:
         chat_log = "\n\n".join(f"{msg['role'].upper()}:\n{msg['content']}" for msg in st.session_state['chat_history'])
         st.download_button(
