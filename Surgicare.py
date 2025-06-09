@@ -133,7 +133,7 @@ def main():
         st.image('app_logo.png', width=140)
         st.title("Settings")
         st.session_state['lang'] = st.selectbox("Language", ["th", "en"], index=0)
-        st.session_state['llm_model'] = st.selectbox("LLM Model", ["typhoon-v2-70b-instruct", "typhoon-v2-8b-instruct"])
+        st.session_state['llm_model'] = st.selectbox("LLM Model", ["typhoon-v2-70b-instruct", "typhoon-v2.1-12b-instruct"])
         st.session_state['max_token'] = st.slider("Max Tokens", 50, 512, st.session_state['max_token'], step=10)
         st.session_state['temperature'] = st.slider("Temperature", 0.0, 1.0, st.session_state['temperature'], step=0.05)
         st.session_state['top_p'] = st.slider("Top P", 0.0, 1.0, st.session_state['top_p'], step=0.05)
@@ -216,17 +216,19 @@ def main():
                 lang=st.session_state['lang']
             )
 
+            with st.chat_message("assistant"):
+                st.write(response)
+
             st.session_state['full_diagnose_w_chat'].append({"role": "assistant", "content": response})
             st.session_state['chat_history'].append({"role": "assistant", "content": response})
 
-    st.subheader("Diagnosis History")
-    for msg in st.session_state['full_diagnose_w_chat']:
-        with st.chat_message(msg['role']):
-            st.write(msg['content'])
-
+    # ========= Chat Input + Display =========
     prompt = st.chat_input("Ask more about your wound..." if st.session_state['lang'] == "en" else "พิมพ์คำถามเพิ่มเติมเกี่ยวกับแผลของคุณ...")
     if prompt:
+        with st.chat_message("user"):
+            st.write(prompt)
         st.session_state['chat_history'].append({"role": "user", "content": prompt})
+
         full_context = "\n".join(msg['content'] for msg in st.session_state['chat_history'])
 
         reply = call_llm(
@@ -239,8 +241,18 @@ def main():
             lang=st.session_state['lang']
         )
 
+        with st.chat_message("assistant"):
+            st.write(reply)
+
         st.session_state['chat_history'].append({"role": "assistant", "content": reply})
         st.session_state['full_diagnose_w_chat'].append({"role": "assistant", "content": reply})
+
+    # ========= Persistent Chat History Display =========
+    if st.session_state['chat_history']:
+        st.subheader("Diagnosis History")
+        for msg in st.session_state['chat_history']:
+            with st.chat_message(msg['role']):
+                st.write(msg['content'])
 
     if st.session_state['full_diagnose_w_chat']:
         chat_log = "\n\n".join(f"{msg['role'].upper()}:\n{msg['content']}" for msg in st.session_state['full_diagnose_w_chat'])
