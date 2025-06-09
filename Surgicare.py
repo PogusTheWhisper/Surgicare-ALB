@@ -163,8 +163,16 @@ def main():
 
     sample_dir = "careful_this_contain_wound_image"
     sample_images = list_sample_images(sample_dir)
-    sample_labels = [f"{os.path.dirname(img).replace(os.sep, '/')}/Sample {i+1}" if os.path.dirname(img) else f"Sample {i+1}" 
-                    for i, img in enumerate(sample_images)]
+
+    # Enumerate images with clean "Sample X" labels, including subdir prefix
+    sample_labels = []
+    for idx, img in enumerate(sample_images, start=1):
+        dir_part = os.path.dirname(img).replace(os.sep, '/')
+        if dir_part == '':
+            label = f"Sample {idx}"
+        else:
+            label = f"{dir_part}/Sample {idx}"
+        sample_labels.append(label)
 
     sample_map = dict(zip(sample_labels, sample_images))
 
