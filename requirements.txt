@@ -5,4 +5,5 @@ pillow
 openai
 requests
 torchvision
+onnx
 onnxruntime
