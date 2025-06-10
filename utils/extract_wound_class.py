@@ -3,6 +3,7 @@ import tempfile
 import requests
 import numpy as np
 import onnxruntime as ort
+from onnxruntime import OrtDevice
 from onnxruntime.quantization import quantize_dynamic, QuantType
 from PIL import Image
 from torchvision import transforms
@@ -25,7 +26,11 @@ class CachedWoundClassifier:
         use_cuda = "CUDAExecutionProvider" in providers
         self.device = device or ("cuda" if use_cuda else "cpu")
         if not os.path.exists(self.MODEL_PATH):
-            self._download(self.MODEL_URL, self.MODEL_PATH)
+            r = requests.get(self.MODEL_URL, stream=True)
+            r.raise_for_status()
+            with open(self.MODEL_PATH, "wb") as f:
+                for c in r.iter_content(1 << 20):
+                    f.write(c)
         model_path = self.MODEL_PATH
         if use_fp16 and use_cuda:
             if not os.path.exists(self.QUANT_PATH):
@@ -50,14 +55,25 @@ class CachedWoundClassifier:
             providers = ["CPUExecutionProvider"]
             provider_options = [{}]
         self.model = ort.InferenceSession(model_path, sess_options=so, providers=providers, provider_options=provider_options)
-        input_meta = self.model.get_inputs()[0]
-        output_meta = self.model.get_outputs()[0]
-        self.input_name = input_meta.name
-        self.output_name = output_meta.name
-        shape = [1] + [dim if dim is not None else 1 for dim in input_meta.shape[1:]]
-        self._input_buffer = ort.OrtValue.ortvalue_from_numpy(np.zeros(shape, dtype=np.float32), self.model.get_providers()[0])
-        self.iobinding = self.model.io_binding()
-        self.iobinding.bind_input(name=self.input_name, device_type=self._input_buffer.device_name(), device_id=0, element_type=np.float32, shape=shape, buffer_ptr=self._input_buffer.data_ptr())
+        self.input_name = self.model.get_inputs()[0].name
+        self.output_name = self.model.get_outputs()[0].name
+        if self.device == "cuda":
+            shape = [1] + [dim if dim is not None else 1 for dim in self.model.get_inputs()[0].shape[1:]]
+            self._input_buffer = ort.OrtValue.ortvalue_from_numpy(
+                np.zeros(shape, dtype=np.float32),
+                OrtDevice("cuda", 0)
+            )
+            self.iobinding = self.model.io_binding()
+            self.iobinding.bind_input(
+                name=self.input_name,
+                device_type="cuda",
+                device_id=0,
+                element_type=np.float32,
+                shape=shape,
+                buffer_ptr=self._input_buffer.data_ptr()
+            )
+        else:
+            self.iobinding = None
         self.transform = transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),
@@ -65,20 +81,20 @@ class CachedWoundClassifier:
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
 
-    def _download(self, url, path):
-        r = requests.get(url, stream=True)
-        r.raise_for_status()
-        with open(path, "wb") as f:
-            for chunk in r.iter_content(1 << 20):
-                f.write(chunk)
-
     def predict(self, image_path):
         img = Image.open(image_path).convert("RGB")
         tensor = self.transform(img).unsqueeze(0).numpy()
-        np.copyto(self._input_buffer.numpy(), tensor)
-        self.iobinding.bind_output(name=self.output_name, device_type=self._input_buffer.device_name(), device_id=0)
-        self.model.run_with_iobinding(self.iobinding)
-        out = self.iobinding.get_outputs()[0].numpy()
+        if self.iobinding:
+            np.copyto(self._input_buffer.numpy(), tensor)
+            self.iobinding.bind_output(
+                name=self.output_name,
+                device_type="cuda",
+                device_id=0
+            )
+            self.model.run_with_iobinding(self.iobinding)
+            out = self.iobinding.get_outputs()[0].numpy()
+        else:
+            out = self.model.run([self.output_name], {self.input_name: tensor})[0]
         e = np.exp(out - out.max(axis=1, keepdims=True))
         probs = e / e.sum(axis=1, keepdims=True)
         idx = int(probs.argmax())
