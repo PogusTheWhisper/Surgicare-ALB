@@ -1,5 +1,7 @@
 # SurgiCare
 
+<img src="app_logo.png" width="250">
+
 SurgiCare is an AI-powered wound analysis system designed to assist healthcare professionals and patients in wound assessment and care management. The application combines computer vision and natural language processing to provide automated wound classification and personalized care recommendations.
 
 ## Features
