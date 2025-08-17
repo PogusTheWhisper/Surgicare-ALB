@@ -179,7 +179,7 @@ The application integrates with OpenAI-compatible APIs for conversational respon
 ## Demo and Resources
 
 - **Live Demo**: [https://surgicare-alb-demo.streamlit.app/](https://surgicare-alb-demo.streamlit.app/)
-- **Technical Article**: [SurgiCare: AI Builder Undone](https://medium.com/@naphatsorn.contact/surgicare-ai-builder-undone-676a0865f57c)
+- **Technical Article**: [SurgiCare: AI Builder](https://medium.com/@naphatsorn.contact/surgicare-wound-analysis-and-initial-care-system-with-ai-74c6a83cbe14)
 
 ## File Structure
 
